@@ -7,14 +7,26 @@ from dotenv import load_dotenv
 import discord
 from discord.ext import commands
 
+CONST_STR_END_COMMAND = "종료"
+
+CONST_DICT_SUMMARY = {
+    "no": 0,
+    "date": "",
+    "participant": [],
+    "absentee": [],
+    "summary": {}
+}
+
 def init():
     global TOKEN
     global THREAD_ID
+    global SUMMARY_THREAD_ID
     
     load_dotenv()
     
-    TOKEN = os.getenv("token")                  # bot token
-    THREAD_ID = int(os.getenv("channel_id"))    # Thread id to send announcement time message``
+    TOKEN = os.getenv("token")                                  # bot token
+    THREAD_ID = int(os.getenv("channel_id"))                    # Thread id to send announcement time message
+    SUMMARY_THREAD_ID = int(os.getenv("summary_channel_id"))    # Thread id to send summary message
 
 # 명령어 프리픽스와 intents 설정 // intents란??
 intents = discord.Intents.default()
@@ -129,6 +141,7 @@ async def announce_order(ctx):
     
     # 발표 순서를 섞습니다.
     random.shuffle(members)
+    CONST_DICT_SUMMARY["participant"] = members
     
     # 발표 순서를 문자열로 만듭니다.
     order_message = "# 발표 순서\n" + "\n".join(f"{idx + 1}. {member.display_name}" for idx, member in enumerate(members))
@@ -137,6 +150,57 @@ async def announce_order(ctx):
     channel = bot.get_channel(THREAD_ID)
     if channel:
         await channel.send(order_message)
+    else:
+        await ctx.send("지정된 스레드를 찾을 수 없습니다. THREAD_ID를 확인하세요.")
+
+    CONST_DICT_SUMMARY["date"] = datetime.now()
+
+def generate_summary_message():
+    '''
+    format:
+    --------------------------------------
+    {N}일차
+    일시: {start_time}
+    참여자: {members}
+    불참자: {members}
+    미발표자: {members}
+
+    [진행 내용]
+    - member1 : 알고리즘 문제풀이
+    - member2 : 공부 내역 1
+    - member3 : 알고리즘 문제풀이
+    '''
+    summary_message = f'{CONST_DICT_SUMMARY["no"]}일차\n일시: {CONST_DICT_SUMMARY["date"].strftime("%Y.%m.%d. %H:%M")}'
+    summary_message += '\n참여자: ' + " ".join(x.mention for x in CONST_DICT_SUMMARY["participant"] if x in CONST_DICT_SUMMARY["summary"].keys())
+    summary_message += '\n불참자: ' + " ".join(x.mention for x in CONST_DICT_SUMMARY["absentee"])
+    summary_message += '\n미발표자: ' + " ".join(x.mention for x in CONST_DICT_SUMMARY["participant"] if x not in CONST_DICT_SUMMARY["summary"].keys())
+    summary_message += f'\n\n[진행내용]\n'+'\n'.join(f'- {x.mention} : {CONST_DICT_SUMMARY["summary"][x]}' for x in CONST_DICT_SUMMARY["participant"] if x in CONST_DICT_SUMMARY["summary"].keys())
+    return summary_message
+
+@bot.command(name=CONST_STR_END_COMMAND)
+async def send_summary(ctx):
+    """
+    스터디 종료와 함께 스터디 내역 기록
+    """
+    channel = bot.get_channel(SUMMARY_THREAD_ID)
+    
+    async for message in channel.history(limit=None):
+        if "일차" in message.content:
+            CONST_DICT_SUMMARY["no"] = int(message.content.split("일차")[0]) + 1
+            break
+        
+        if message.author in CONST_DICT_SUMMARY["participant"]:
+            CONST_DICT_SUMMARY["summary"][message.author] = message.content
+            await message.delete()
+            await asyncio.sleep(0.5)  # 디스코드 API 제한
+            continue
+
+        if message.content==f"!{CONST_STR_END_COMMAND}":
+            await message.delete()
+            await asyncio.sleep(0.5)  # 디스코드 API 제한
+    
+    if channel:
+        await channel.send(generate_summary_message())
     else:
         await ctx.send("지정된 스레드를 찾을 수 없습니다. THREAD_ID를 확인하세요.")
 
