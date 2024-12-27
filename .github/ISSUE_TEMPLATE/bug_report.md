@@ -20,8 +20,14 @@ Steps to reproduce the behavior:
 ## Expected behavior
 > A clear and concise description of what you expected to happen.
 
+## Actual result
+> A clear and concise description of the actual result.
+
 ## Screenshots
 If applicable, add screenshots to help explain your problem.
+
+## Environments
+> A description of your environments.
 
 ## Additional context
 > Add any other context about the problem here.
