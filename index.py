@@ -8,6 +8,7 @@ import discord
 from discord.ext import commands
 
 CONST_STR_END_COMMAND = "종료"
+CONST_STR_UPDATE_COMMAND = "업데이트"
 
 CONST_DICT_SUMMARY = {
     "no": 0,
@@ -201,6 +202,44 @@ async def send_summary(ctx):
     
     if channel:
         await channel.send(generate_summary_message())
+    else:
+        await ctx.send("지정된 스레드를 찾을 수 없습니다. THREAD_ID를 확인하세요.")
+
+@bot.command(name=CONST_STR_UPDATE_COMMAND)
+async def update_member(ctx):
+    """
+    스터디 진행 중 인원 변동에 따른 명단 수정
+    """
+    channel = bot.get_channel(THREAD_ID)
+    # !{CONST_STR_UPDATE_COMMAND} 명령 제거
+    async for message in channel.history(limit=1):
+        if message.content==f"!{CONST_STR_UPDATE_COMMAND}":
+            await message.delete()
+            await asyncio.sleep(0.5)  # 디스코드 API 제한
+
+    # 음성 채널을 찾습니다. 채널 이름을 '일반'으로 가정
+    guild = ctx.guild
+    voice_channel = discord.utils.get(guild.voice_channels, name="일반")
+    
+    # 음성 채널이 없으면 에러 메시지를 보냅니다.
+    if voice_channel is None:
+        await ctx.send("일반 음성 채널을 찾을 수 없습니다.")
+        return
+    
+    # 음성 채널에 접속해 있는 사용자 목록을 가져옵니다.
+    members = [member for member in voice_channel.members if not member.bot]  # 봇 제외
+    if not members:
+        await ctx.send("현재 일반 음성 채널에 사용자가 없습니다.")
+        return
+    
+    new_members = [x for x in members if x not in CONST_DICT_SUMMARY["participant"]]
+    CONST_DICT_SUMMARY["participant"] += new_members
+    
+    # 발표 순서를 문자열로 만듭니다.
+    order_message = "추가 발표\n" + "\n".join(f"{idx + 1}. {member.display_name}" for idx, member in enumerate(new_members))
+    
+    if channel:
+        await channel.send(order_message)
     else:
         await ctx.send("지정된 스레드를 찾을 수 없습니다. THREAD_ID를 확인하세요.")
 
