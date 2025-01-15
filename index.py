@@ -190,15 +190,16 @@ async def send_summary(ctx):
             CONST_DICT_SUMMARY["no"] = int(message.content.split("일차")[0]) + 1
             break
         
+        if message.content==f"!{CONST_STR_END_COMMAND}":
+            await message.delete()
+            await asyncio.sleep(0.5)  # 디스코드 API 제한
+            continue
+
         if message.author in CONST_DICT_SUMMARY["participant"]:
             CONST_DICT_SUMMARY["summary"][message.author] = message.content
             await message.delete()
             await asyncio.sleep(0.5)  # 디스코드 API 제한
             continue
-
-        if message.content==f"!{CONST_STR_END_COMMAND}":
-            await message.delete()
-            await asyncio.sleep(0.5)  # 디스코드 API 제한
     
     if channel:
         await channel.send(generate_summary_message())
