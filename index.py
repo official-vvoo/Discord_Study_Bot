@@ -24,13 +24,11 @@ CONST_DICT_SUMMARY = {
 def init():
     global TOKEN
     global THREAD_ID
-    global SUMMARY_THREAD_ID
     
     load_dotenv()
     
     TOKEN = os.getenv("token")                                  # bot token
     THREAD_ID = int(os.getenv("channel_id"))                    # Thread id to send announcement time message
-    SUMMARY_THREAD_ID = int(os.getenv("summary_channel_id"))    # Thread id to send summary message
 
 # 명령어 프리픽스와 intents 설정 // intents란??
 intents = discord.Intents.default()
@@ -187,28 +185,23 @@ async def send_summary(ctx):
     """
     스터디 종료와 함께 스터디 내역 기록
     """
-    channel = bot.get_channel(SUMMARY_THREAD_ID)
-    
-    async for message in channel.history(limit=None):
-        if "일차" in message.content:
+    async for message in ctx.history(limit=CONST_INT_LIMITS+len(CONST_DICT_SUMMARY["participant"])):
+        if "일차" in message.content:                            # 스터디 일차 업데이트
             CONST_DICT_SUMMARY["no"] = int(message.content.split("일차")[0]) + 1
             break
         
-        if message.content==f"!{CONST_STR_END_COMMAND}":
+        if message.content==f"!{CONST_STR_END_COMMAND}":        # 명령 메세지 제거
             await message.delete()
             await asyncio.sleep(0.5)  # 디스코드 API 제한
             continue
 
-        if message.author in CONST_DICT_SUMMARY["participant"]:
+        if message.author in CONST_DICT_SUMMARY["participant"]: # 참여자 발표 항목 업데이트
             CONST_DICT_SUMMARY["summary"][message.author] = message.content
             await message.delete()
             await asyncio.sleep(0.5)  # 디스코드 API 제한
             continue
     
-    if channel:
-        await channel.send(generate_summary_message())
-    else:
-        await ctx.send("지정된 스레드를 찾을 수 없습니다. THREAD_ID를 확인하세요.")
+    await ctx.send(generate_summary_message())
 
 @bot.command(name=CONST_STR_UPDATE_COMMAND)
 async def update_member(ctx):
@@ -259,7 +252,7 @@ async def add_absentee(ctx, *users):
     --------------------------------------
     '''
     # 명령어 지우기
-    async for message in ctx.channel.history(limit=CONST_INT_LIMITS):
+    async for message in ctx.history(limit=CONST_INT_LIMITS):
         if CONST_STR_ABSENCE in message.content:
             await message.delete()
             await asyncio.sleep(0.5)  # 디스코드 API 제한
