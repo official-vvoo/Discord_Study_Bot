@@ -7,14 +7,28 @@ from dotenv import load_dotenv
 import discord
 from discord.ext import commands
 
+CONST_INT_LIMITS = 5
+
+CONST_STR_END_COMMAND = "종료"
+CONST_STR_UPDATE_COMMAND = "업데이트"
+CONST_STR_ABSENCE = "결석"
+
+CONST_DICT_SUMMARY = {
+    "no": 0,
+    "date": "",
+    "participant": [],
+    "absentee": [],
+    "summary": {}
+}
+
 def init():
     global TOKEN
     global THREAD_ID
     
     load_dotenv()
     
-    TOKEN = os.getenv("token")                  # bot token
-    THREAD_ID = int(os.getenv("channel_id"))    # Thread id to send announcement time message``
+    TOKEN = os.getenv("token")                                  # bot token
+    THREAD_ID = int(os.getenv("channel_id"))                    # Thread id to send announcement time message
 
 # 명령어 프리픽스와 intents 설정 // intents란??
 intents = discord.Intents.default()
@@ -22,6 +36,7 @@ intents.voice_states = True  # 음성 상태를 모니터링할 수 있도록 �
 intents.messages = True      # 메시지 관련 이벤트를 허용
 intents.message_content = True  # 메시지 내용을 읽기 위한 인텐트 활성화
 intents.guilds = True
+intents.members = True       # 길드원 목록에 접근할 수 있도록 허용
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
@@ -129,6 +144,7 @@ async def announce_order(ctx):
     
     # 발표 순서를 섞습니다.
     random.shuffle(members)
+    CONST_DICT_SUMMARY["participant"] = members
     
     # 발표 순서를 문자열로 만듭니다.
     order_message = "# 발표 순서\n" + "\n".join(f"{idx + 1}. {member.display_name}" for idx, member in enumerate(members))
@@ -140,6 +156,137 @@ async def announce_order(ctx):
     else:
         await ctx.send("지정된 스레드를 찾을 수 없습니다. THREAD_ID를 확인하세요.")
 
+    CONST_DICT_SUMMARY["date"] = datetime.now()
+
+def generate_summary_message():
+    '''
+    format:
+    --------------------------------------
+    {N}일차
+    일시: {start_time}
+    참여자: {members}
+    불참자: {members}
+    미발표자: {members}
+
+    [진행 내용]
+    - member1 : 알고리즘 문제풀이
+    - member2 : 공부 내역 1
+    - member3 : 알고리즘 문제풀이
+    '''
+    summary_message = f'{CONST_DICT_SUMMARY["no"]}일차\n일시: {CONST_DICT_SUMMARY["date"].strftime("%Y.%m.%d. %H:%M")}'
+    summary_message += '\n참여자: ' + " ".join(x.mention for x in CONST_DICT_SUMMARY["participant"] if x in CONST_DICT_SUMMARY["summary"].keys())
+    summary_message += '\n불참자: ' + " ".join(x.mention for x in CONST_DICT_SUMMARY["absentee"])
+    summary_message += '\n미발표자: ' + " ".join(x.mention for x in CONST_DICT_SUMMARY["participant"] if x not in CONST_DICT_SUMMARY["summary"].keys())
+    summary_message += f'\n\n[진행내용]\n'+'\n'.join(f'- {x.mention} : {CONST_DICT_SUMMARY["summary"][x]}' for x in CONST_DICT_SUMMARY["participant"] if x in CONST_DICT_SUMMARY["summary"].keys())
+    return summary_message
+
+@bot.command(name=CONST_STR_END_COMMAND)
+async def send_summary(ctx):
+    """
+    스터디 종료와 함께 스터디 내역 기록
+    """
+    async for message in ctx.history(limit=CONST_INT_LIMITS+len(CONST_DICT_SUMMARY["participant"])):
+        if "일차" in message.content:                            # 스터디 일차 업데이트
+            CONST_DICT_SUMMARY["no"] = int(message.content.split("일차")[0]) + 1
+            break
+        
+        if message.content==f"!{CONST_STR_END_COMMAND}":        # 명령 메세지 제거
+            await message.delete()
+            await asyncio.sleep(0.5)  # 디스코드 API 제한
+            continue
+
+        if message.author in CONST_DICT_SUMMARY["participant"]: # 참여자 발표 항목 업데이트
+            CONST_DICT_SUMMARY["summary"][message.author] = message.content
+            await message.delete()
+            await asyncio.sleep(0.5)  # 디스코드 API 제한
+            continue
+    
+    await ctx.send(generate_summary_message())
+
+@bot.command(name=CONST_STR_UPDATE_COMMAND)
+async def update_member(ctx):
+    """
+    스터디 진행 중 인원 변동에 따른 명단 수정
+    """
+    channel = bot.get_channel(THREAD_ID)
+    # !{CONST_STR_UPDATE_COMMAND} 명령 제거
+    async for message in channel.history(limit=1):
+        if message.content==f"!{CONST_STR_UPDATE_COMMAND}":
+            await message.delete()
+            await asyncio.sleep(0.5)  # 디스코드 API 제한
+
+    # 음성 채널을 찾습니다. 채널 이름을 '일반'으로 가정
+    guild = ctx.guild
+    voice_channel = discord.utils.get(guild.voice_channels, name="일반")
+    
+    # 음성 채널이 없으면 에러 메시지를 보냅니다.
+    if voice_channel is None:
+        await ctx.send("일반 음성 채널을 찾을 수 없습니다.")
+        return
+    
+    # 음성 채널에 접속해 있는 사용자 목록을 가져옵니다.
+    members = [member for member in voice_channel.members if not member.bot]  # 봇 제외
+    if not members:
+        await ctx.send("현재 일반 음성 채널에 사용자가 없습니다.")
+        return
+    
+    new_members = [x for x in members if x not in CONST_DICT_SUMMARY["participant"]]
+    CONST_DICT_SUMMARY["participant"] += new_members
+    
+    # 발표 순서를 문자열로 만듭니다.
+    order_message = "추가 발표\n" + "\n".join(f"{idx + 1}. {member.display_name}" for idx, member in enumerate(new_members))
+    
+    if channel:
+        await channel.send(order_message)
+    else:
+        await ctx.send("지정된 스레드를 찾을 수 없습니다. THREAD_ID를 확인하세요.")
+
+@bot.command(name=CONST_STR_ABSENCE)
+async def add_absentee(ctx, *users):
+    '''
+    스터디에 불참한 멤버를 반영
+
+    input format (in discord):
+    --------------------------------------
+    !{CONST_STR_ABSENCE} @user1 @user2
+    --------------------------------------
+    '''
+    # 명령어 지우기
+    async for message in ctx.history(limit=CONST_INT_LIMITS):
+        if CONST_STR_ABSENCE in message.content:
+            await message.delete()
+            await asyncio.sleep(0.5)  # 디스코드 API 제한
+            break
+    
+    # 불참자를 입력하지 않고 명령어만 입력한 경우
+    if not users:
+        await ctx.send("불참자를 찾을 수 없습니다.")
+    
+    absentee_id_list = []
+    # 입력한 불참자의 format이 일치하는지 여부
+    for user in users:
+        if user[:2] != "<@" or user[-1] != ">":     # @mention 기능을 활용하지 않았을 때
+            await ctx.send(f"{user}의 형식이 올바르지 않습니다. @mention 기능으로 입력해 주세요")
+            continue
+        
+        if user[2:-1].isdigit() == False:           # user id가 정수로 들어오지 않았을 때 (member의 id는 항상 숫자다)
+            await ctx.send(f"{user}의 형식이 올바르지 않습니다. @mention 기능으로 입력해 주세요")
+            continue
+
+        absentee_id_list.append(int(user[2:-1]))    # user id 저장
+        
+    absentee_list = [member for member in ctx.guild.members if member.id in absentee_id_list]
+
+    # 형식에 맞게 들어온 user id와 서버 내 멤버에서 찾은 user id가 다를 때
+    if len(absentee_id_list) != len(absentee_list):
+        for absentee in absentee_list:
+            absentee_id_list.remove(absentee.id)
+        await ctx.send(f"다음 유저(들)을 서버에서 찾을 수 없습니다.: {' '.join([f'<@{absentee_id}>' for absentee_id in absentee_id_list])}")
+
+    # update absentee
+    CONST_DICT_SUMMARY["absentee"] = list(set(CONST_DICT_SUMMARY["absentee"] + absentee_list))
+    await ctx.send(f"다음 유저(들)을 불참자로 반영했습니다.: {' '.join([absentee.name for absentee in absentee_list])}")
+    
 if __name__ == "__main__":
     init()
     # 봇 실행
